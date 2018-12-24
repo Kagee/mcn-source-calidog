@@ -1,0 +1,64 @@
+#! /usr/bin/env bash
+# Inof / Source: Access to the BigQuery dataset mentioned in https://medium.com/cali-dog-security/retrieving-storing-and-querying-250m-certificates-like-a-boss-31b1ce2dfcf8
+# BigQuery: SELECT all_dns_names FROM [ctl-lists:ctl_data.cert_data] WHERE REGEXP_MATCH( all_dns_names,r'\.no( |$)')
+SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SOURCE_DIR"
+source config.sh
+
+IGNORE_QT=false
+while true; do
+  case "$1" in
+    --ignore-qt ) IGNORE_QT=true; shift ;;
+    -- ) shift; break ;;
+    * ) break ;;
+  esac
+done
+
+command -v bq >/dev/null 2>&1 || \
+  { echo >&2 "[ERROR] This script requires bq (gcloud) but it's not installed. Aborting.";
+      exit 1; }
+
+TIMESTAMP="$(date +%F%T | tr ':' '-')"
+YM="$(date +"%Y_%m")"
+
+QUERY="SELECT all_dns_names FROM [ctl-lists:ctl_data.cert_data] WHERE REGEXP_MATCH( all_dns_names,r'\\.no( |$)')"
+
+BASE="bq --location=US query "
+DRY_RUN="--dry_run "
+OPTIONS="--headless --synchronous_mode=true --allow_large_results=true --use_legacy_sql=true --destination_table "
+TABLE="ct-csv:no_domains.extract_$YM"
+TEST="$BASE$DRY_RUN$OPTIONS$TABLE"
+RUN="$BASE$OPTIONS$TABLE"
+
+echo "$QUERY" | $TEST
+TEST_CODE=$?
+if [ $TEST_CODE -ne 0 ]; then
+  echo >&2 "[ERROR] Test returned error code $TEST_CODE, use --ignore-qt to skip: $TEST"
+  if $IGNORE_QT; then
+    echo >&2 "[INFO] Ignored test result"
+  else
+    exit $TEST_CODE
+  fi
+else
+  echo >&2 "[INFO] Testrun of query completed successfully."
+fi
+
+#echo "$QUERY" | $RUN --replace >/dev/null
+
+#bq --location=US extract --destination_format=CSV --compression=GZIP --print_header=false "$TABLE" "gs://dot_no/${YM}.csv.*.gz"
+
+#gsutil -m cp  "gs://dot_no/${YM}*" .
+
+LIST="$TIMESTAMP-$DOMAINS"
+
+for CSVGZ in *.gz;
+  do
+    zcat "$CSVGZ" >> $YM.csv; 
+  done
+
+cat top-1m.csv | "$MCN_TOOLS/default_extract" > "$SOURCE_DIR/_list.tmp"
+  cat top-1m.csv | sed -e 's/\.com\.no/\.no/' -e 's/\.co\.no/\.no/' | "$MCN_TOOLS/default_extract" >> "$SOURCE_DIR/_list.tmp"
+  # cat top-1m.csv | sed -e 's/\.[^.]*$/\.no/' | "${MCN_TOOLS}/default_extract" >> ./tmp.list
+  cat "$SOURCE_DIR/_list.tmp" *.list | sort | uniq > "$SOURCE_DIR/_list2.tmp"
+  mv "$SOURCE_DIR/_list2.tmp" "$LIST"
+  rm -f "$SOURCE_DIR/_list.tmp" "$SOURCE_DIR/_list2.tmp"
