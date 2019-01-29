@@ -19,16 +19,16 @@ command -v bq >/dev/null 2>&1 || \
       exit 1; }
 
 TIMESTAMP="$(date +%F%T | tr ':' '-')"
-YM="$(date +"%Y_%m")"
-
+YM="$(date +%F)"
+YMUS="$(echo "$YM" | tr '-' '_' )"
 QUERY="SELECT all_dns_names FROM [ctl-lists:ctl_data.cert_data] WHERE REGEXP_MATCH( all_dns_names,r'\\.no( |$)')"
 
-BASE="bq --location=US query "
-DRY_RUN="--dry_run "
-OPTIONS="--headless --synchronous_mode=true --allow_large_results=true --use_legacy_sql=true --destination_table "
-TABLE="ct-csv:no_domains.extract_$YM"
-TEST="$BASE$DRY_RUN$OPTIONS$TABLE"
-RUN="$BASE$OPTIONS$TABLE"
+BASE="bq --location=US query"
+DRY_RUN="--dry_run"
+OPTIONS="--headless --synchronous_mode=true --allow_large_results=true --use_legacy_sql=true --destination_table"
+TABLE="ct-csv:no_domains.extract_$YMUS"
+TEST="$BASE $DRY_RUN $OPTIONS $TABLE"
+RUN="$BASE $OPTIONS $TABLE"
 
 echo "$QUERY" | $TEST
 TEST_CODE=$?
@@ -43,22 +43,27 @@ else
   echo >&2 "[INFO] Testrun of query completed successfully."
 fi
 
-#echo "$QUERY" | $RUN --replace >/dev/null
+echo "$QUERY" | $RUN --replace >/dev/null
 
-#bq --location=US extract --destination_format=CSV --compression=GZIP --print_header=false "$TABLE" "gs://dot_no/${YM}.csv.*.gz"
+bq --location=US extract \
+  --destination_format=CSV \
+  --compression=GZIP \
+  --print_header=false \
+  "$TABLE" \
+  "gs://dot_no/${YM}.csv.*.gz" && \
+bq --location=US rm -f "$TABLE"
 
-#gsutil -m cp  "gs://dot_no/${YM}*" .
+gsutil -m cp "gs://dot_no/${YM}*" . && \
+gsutil rm "gs://dot_no/${YM}*"
 
-LIST="$TIMESTAMP-$DOMAINS"
+LIST="$YM-$DOMAINS"
 
 for CSVGZ in *.gz;
   do
     zcat "$CSVGZ" >> $YM.csv; 
   done
 
-cat top-1m.csv | "$MCN_TOOLS/default_extract" > "$SOURCE_DIR/_list.tmp"
-  cat top-1m.csv | sed -e 's/\.com\.no/\.no/' -e 's/\.co\.no/\.no/' | "$MCN_TOOLS/default_extract" >> "$SOURCE_DIR/_list.tmp"
-  # cat top-1m.csv | sed -e 's/\.[^.]*$/\.no/' | "${MCN_TOOLS}/default_extract" >> ./tmp.list
-  cat "$SOURCE_DIR/_list.tmp" *.list | sort | uniq > "$SOURCE_DIR/_list2.tmp"
-  mv "$SOURCE_DIR/_list2.tmp" "$LIST"
-  rm -f "$SOURCE_DIR/_list.tmp" "$SOURCE_DIR/_list2.tmp"
+mv output/* old/
+cat $YM.csv old/* | "$MCN_TOOLS/default_extract" > "$SOURCE_DIR/$YM-$DOMAINS"
+mv "$SOURCE_DIR/$YM-$DOMAINS" "$SOURCE_DIR/output/$YM-$DOMAINS"
+rm -f "$SOURCE_DIR/${YM}.csv*"
