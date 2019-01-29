@@ -66,4 +66,4 @@ for CSVGZ in *.gz;
 mv output/* old/
 cat $YM.csv old/* | "$MCN_TOOLS/default_extract" > "$SOURCE_DIR/$YM-$DOMAINS"
 mv "$SOURCE_DIR/$YM-$DOMAINS" "$SOURCE_DIR/output/$YM-$DOMAINS"
-rm -f "$SOURCE_DIR/${YM}.csv*"
+find $SOURCE_DIR -name "${YM}.csv*" -delete
